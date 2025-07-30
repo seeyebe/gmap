@@ -109,11 +109,13 @@ Date values support:
 
 `--since` and `--until` accept any of:
 
-* `X days ago` (e.g. `30 days ago`)
-* `X weeks ago` (e.g. `12 weeks ago`)
-* `X months ago` (e.g. `6 months ago`)
-* `today` or `now` (resolves to current commit time)
-* Git references (e.g. `HEAD~10`, `abcdef1`, `main`)
+* Exact date in `YYYY-MM-DD` (e.g. `2024-01-01`)
+* RFC3339 datetime (e.g. `2024-01-01T00:00:00Z`)
+* Relative time: 
+  - `X days ago`
+  - `X weeks ago`
+  - `X months ago`
+* Git revisions (e.g. `HEAD~10`, `abcdef1`, `main`, or any valid commit, branch, or tag)
 
-> Note: `1 year ago`, `last month`, or exact dates like `2024-01-01` are **not currently supported** unless given as Git revisions or commit hashes.
+> Note: `1 year ago`, `yesterday`, `last month`, and natural language like `today` or `now` are **not supported**.
 ---
