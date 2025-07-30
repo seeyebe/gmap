@@ -1,7 +1,7 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Cell, Clear, Gauge, Paragraph, Row, Sparkline, Table};
+use ratatui::widgets::{Block, Borders, Cell, Clear, Gauge, Paragraph, Row, Sparkline, Table, TableState};
 use ratatui::Frame;
 
 use crate::tui::centered_rect;
@@ -487,9 +487,204 @@ pub fn draw_timeline_view(f: &mut Frame, area: Rect, weeks: &[WeekStats], _state
     f.render_widget(timeline_table, chunks[1]);
 }
 
+pub fn draw_commit_details_view(f: &mut Frame, area: Rect, weeks: &[WeekStats], state: &mut TuiState) {
+    if weeks.is_empty() || state.selected >= weeks.len() {
+        let placeholder = Paragraph::new("No week selected")
+            .block(Block::default().title("Commit Details").borders(Borders::ALL));
+        f.render_widget(placeholder, area);
+        return;
+    }
+
+    let outer_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(0),
+            Constraint::Length(1),
+        ])
+        .split(area);
+
+    let main_area = outer_chunks[0];
+    let status_area = outer_chunks[1];
+
+    let selected_week = &weeks[state.selected];
+
+    if state.loading_commits {
+        let loading = Paragraph::new("Loading commits...")
+            .block(Block::default()
+                .title(format!("Commit Details - Week {}", selected_week.week))
+                .borders(Borders::ALL));
+        f.render_widget(loading, main_area);
+        return;
+    }
+
+    if state.commit_details.is_empty() {
+        let empty = Paragraph::new("No commits found for this week.\nPress Enter from any other view to load commits.")
+            .block(Block::default()
+                .title(format!("Commit Details - Week {}", selected_week.week))
+                .borders(Borders::ALL));
+        f.render_widget(empty, main_area);
+        return;
+    }
+
+    let inner_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
+        .split(main_area);
+
+    let commit_rows: Vec<Row> = state.commit_details
+        .iter()
+        .enumerate()
+        .map(|(i, commit)| {
+            let is_selected = i == state.commit_selected;
+            let hash_cell = if is_selected {
+                Cell::from(format!("{} ◄", commit.short_hash)).style(
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )
+            } else {
+                Cell::from(commit.short_hash.clone()).style(Style::default().fg(Color::Cyan))
+            };
+
+            let message_truncated = if commit.message.len() > 50 {
+                format!("{}...", &commit.message[..47])
+            } else {
+                commit.message.clone()
+            };
+
+            let message_cell = Cell::from(message_truncated)
+                .style(if is_selected {
+                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White)
+                });
+
+            let author_cell = Cell::from(commit.author_name.clone())
+                .style(Style::default().fg(Color::Magenta));
+
+            let changes_cell = Cell::from(format!("+{} -{}", commit.lines_added, commit.lines_deleted))
+                .style(Style::default().fg(Color::Green));
+
+            Row::new(vec![hash_cell, message_cell, author_cell, changes_cell])
+        })
+        .collect();
+
+    let commits_table = Table::new(
+        commit_rows,
+        [
+            Constraint::Length(10),
+            Constraint::Percentage(50),
+            Constraint::Percentage(25),
+            Constraint::Length(15),
+        ],
+    )
+    .header(Row::new([
+        Cell::from("Hash").style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Cell::from("Message").style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Cell::from("Author").style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Cell::from("Changes").style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+    ]))
+    .block(Block::default()
+        .title(format!("Commits - Week {} ({} commits)", selected_week.week, state.commit_details.len()))
+        .borders(Borders::ALL));
+
+    let mut table_state = TableState::default();
+    table_state.select(Some(state.commit_selected));
+    f.render_stateful_widget(commits_table, inner_chunks[0], &mut table_state);
+
+    if let Some(selected_commit) = state.commit_details.get(state.commit_selected) {
+        let details_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(8),
+                Constraint::Min(0),
+            ])
+            .split(inner_chunks[1]);
+
+        let commit_info = vec![
+            Line::from(vec![Span::styled(
+                "📝 Commit Details",
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            )]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("Hash: ", Style::default().fg(Color::White)),
+                Span::styled(selected_commit.short_hash.clone(), Style::default().fg(Color::Cyan)),
+            ]),
+            Line::from(vec![
+                Span::styled("Author: ", Style::default().fg(Color::White)),
+                Span::styled(selected_commit.author_name.clone(), Style::default().fg(Color::Magenta)),
+            ]),
+            Line::from(vec![
+                Span::styled("Date: ", Style::default().fg(Color::White)),
+                Span::styled(selected_commit.timestamp.clone(), Style::default().fg(Color::Green)),
+            ]),
+            Line::from(vec![
+                Span::styled("Changes: ", Style::default().fg(Color::White)),
+                Span::styled(
+                    format!("+{} -{}", selected_commit.lines_added, selected_commit.lines_deleted),
+                    Style::default().fg(Color::Green),
+                ),
+            ]),
+        ];
+
+        let info_panel = Paragraph::new(commit_info).block(
+            Block::default()
+                .title("Info")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Blue)),
+        );
+        f.render_widget(info_panel, details_chunks[0]);
+
+        let files_text: Vec<Line> = vec![
+            Line::from(vec![Span::styled(
+                "📁 Files Changed",
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            )]),
+            Line::from(""),
+        ]
+        .into_iter()
+        .chain(
+            selected_commit.files_changed
+                .iter()
+                .take(20)
+                .map(|file| {
+                    let display_path = if file.len() > 40 {
+                        format!("...{}", &file[file.len()-37..])
+                    } else {
+                        file.clone()
+                    };
+                    Line::from(vec![
+                        Span::styled("  ", Style::default()),
+                        Span::styled(display_path, Style::default().fg(Color::Cyan)),
+                    ])
+                })
+        )
+        .collect();
+
+        let files_panel = Paragraph::new(files_text).block(
+            Block::default()
+                .title(format!("Files ({})", selected_commit.files_changed.len()))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Blue)),
+        );
+        f.render_widget(files_panel, details_chunks[1]);
+    }
+
+    if let Some((message, timestamp)) = &state.status_message {
+        if timestamp.elapsed().as_secs() < 3 {
+            let msg = Paragraph::new(message.clone())
+                .style(Style::default().fg(Color::LightCyan));
+            f.render_widget(msg, status_area);
+        } else {
+            state.status_message = None;
+        }
+    }
+}
+
 pub fn draw_help_overlay(f: &mut Frame, area: Rect) {
     let block = Block::default().title("Help").borders(Borders::ALL);
-    let help_area = centered_rect(60, 70, area);
+    let help_area = centered_rect(70, 80, area);
 
     f.render_widget(Clear, help_area);
 
@@ -497,13 +692,20 @@ pub fn draw_help_overlay(f: &mut Frame, area: Rect) {
         Line::from(vec![Span::styled("Git Activity Heatmap - Help", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))]),
         Line::from(""),
         Line::from(vec![Span::styled("Navigation:", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))]),
-        Line::from("  ← → j k     Navigate weeks"),
-        Line::from("  Home/End    Jump to first/last week"),
-        Line::from("  PgUp/PgDn   Navigate by 10 weeks"),
+        Line::from("  ← → j k     Navigate weeks/commits"),
+        Line::from("  Home/End    Jump to first/last"),
+        Line::from("  PgUp/PgDn   Navigate by 10 items"),
+        Line::from("  Mouse       Scroll with mouse wheel"),
         Line::from(""),
         Line::from(vec![Span::styled("Views:", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))]),
         Line::from("  Tab         Next view mode"),
         Line::from("  Shift+Tab   Previous view mode"),
+        Line::from("  Enter       View commit details for selected week"),
+        Line::from(""),
+        Line::from(vec![Span::styled("Commit Details:", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))]),
+        Line::from("  c           Copy selected commit hash"),
+        Line::from("  ← → j k     Navigate through commits"),
+        Line::from("  Click       Double-click week to view commits"),
         Line::from(""),
         Line::from(vec![Span::styled("Search & Filter:", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))]),
         Line::from("  /           Start search"),
@@ -519,6 +721,7 @@ pub fn draw_help_overlay(f: &mut Frame, area: Rect) {
         Line::from("  📊 Stats     - Repository statistics"),
         Line::from("  📁 Files     - File type analysis"),
         Line::from("  📈 Timeline  - Activity over time"),
+        Line::from("  💻 Commits   - Detailed commit browser"),
         Line::from(""),
         Line::from(vec![Span::styled("Press 'h' or 'Esc' to close this help", Style::default().fg(Color::Gray))]),
     ];
