@@ -23,9 +23,7 @@ gmap <SUBCOMMAND> [OPTIONS]
 
 ---
 
-## TUI Mode
-
-Launch the terminal UI:
+## Usage
 
 ```sh
 Usage: gmap [OPTIONS] <COMMAND>
@@ -45,6 +43,13 @@ Options:
       --until <UNTIL>   End at this commit or date (RFC3339, YYYY-MM-DD, or natural language)
   -h, --help            Print help
   -V, --version         Print version
+```
+
+## TUI Mode
+
+Launch the terminal UI:
+```bash
+gmap heat --tui
 ```
 
 Keybindings:
