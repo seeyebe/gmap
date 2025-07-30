@@ -18,14 +18,6 @@ cargo install gmap
 ## Usage
 
 ```sh
-gmap <SUBCOMMAND> [OPTIONS]
-```
-
----
-
-## Usage
-
-```sh
 Usage: gmap [OPTIONS] <COMMAND>
 
 Commands:
