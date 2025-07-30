@@ -5,7 +5,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path};
 
-pub struct Cache {  
+pub struct Cache {
     conn: Connection,
 }
 
@@ -172,18 +172,22 @@ impl Cache {
                     ],
                 )?;
                 tx.execute("DELETE FROM files WHERE commit_id = ?", params![stats.commit_id])?;
+                use std::collections::HashSet;
+                let mut seen_paths = HashSet::new();
                 for f in &stats.files {
-                    tx.execute(
-                        "INSERT INTO files (commit_id, path, added_lines, deleted_lines, is_binary)
-                         VALUES (?, ?, ?, ?, ?)",
-                        params![
-                            stats.commit_id,
-                            f.path,
-                            f.added_lines,
-                            f.deleted_lines,
-                            f.is_binary
-                        ],
-                    )?;
+                    if seen_paths.insert(&f.path) {
+                        tx.execute(
+                            "INSERT INTO files (commit_id, path, added_lines, deleted_lines, is_binary)
+                             VALUES (?, ?, ?, ?, ?)",
+                            params![
+                                stats.commit_id,
+                                f.path,
+                                f.added_lines,
+                                f.deleted_lines,
+                                f.is_binary
+                            ],
+                        )?;
+                    }
                 }
             }
         }
