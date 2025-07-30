@@ -2,7 +2,7 @@ use std::io;
 use crossterm::terminal::{enable_raw_mode, disable_raw_mode};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use super::state::{TuiState, WeekStats, ViewMode};
+use super::state::{TuiState, ViewMode};
 use super::input::{apply_search_filter, ensure_selection_in_filtered};
 use crossterm::event::{poll, read, Event, KeyCode};
 use crossterm::event::{KeyEventKind};
@@ -14,7 +14,19 @@ use super::views::{
     draw_help_overlay,
 };
 
-pub fn run(weeks: Vec<WeekStats>) -> io::Result<()> {
+use crate::cli::CommonArgs;
+use crate::git::GitRepo;
+use crate::cache::Cache;
+use crate::heat::{aggregate_weeks, fetch_commit_stats};
+
+pub fn run(common: &CommonArgs, path: Option<String>) -> io::Result<()> {
+    let repo = GitRepo::open(common.repo.as_ref()).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    let mut cache = Cache::new(common.cache.as_deref(), repo.path()).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    let range = repo.resolve_range(common.since.as_deref(), common.until.as_deref()).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    let stats = fetch_commit_stats(&repo, &mut cache, &range, common.include_merges, common.binary)
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    let weeks = aggregate_weeks(&stats, &cache, path.as_deref());
+
     enable_raw_mode()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
     let mut state = TuiState::default();

@@ -1,5 +1,4 @@
 use anyhow::Result;
-use crate::git::GitRepo;
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -85,12 +84,7 @@ impl Cli {
             }
             Commands::Heat { json, ndjson, interactive, path } => {
                 if interactive {
-                    let repo = GitRepo::open(self.common.repo.as_ref())?;
-                    let cache = crate::cache::Cache::new(self.common.cache.as_deref(), repo.path())?;
-                    let range = repo.resolve_range(self.common.since.as_deref(), self.common.until.as_deref())?;
-                    let stats = cache.get_commit_stats(&range)?;
-                    let weeks = crate::heat::aggregate_weeks(&stats, &cache, path.as_deref());
-                    crate::tui::run(weeks).map_err(|e| anyhow::anyhow!(e))
+                    crate::tui::run(&self.common, path).map_err(|e| anyhow::anyhow!(e))
                 } else {
                     crate::heat::exec(self.common, json, ndjson, path)
                 }

@@ -16,20 +16,14 @@ pub struct FileExtensionStats {
     pub lines_deleted: usize,
     pub files_changed: usize,
 }
-pub fn exec(common: CommonArgs, json: bool, ndjson: bool, path: Option<String>) -> anyhow::Result<()> {
-    let repo = GitRepo::open(common.repo.as_ref()).context("Failed to open git repository")?;
-    let mut cache = Cache::new(common.cache.as_deref(), repo.path()).context("Failed to initialize cache")?;
-
-    let range = repo
-        .resolve_range(common.since.as_deref(), common.until.as_deref())
-        .context("Failed to resolve date range")?;
-
+/// Fetch all commit stats, updating cache if needed.
+pub fn fetch_commit_stats(repo: &GitRepo, cache: &mut Cache, range: &crate::model::DateRange, include_merges: bool, binary: bool) -> anyhow::Result<Vec<crate::model::CommitStats>> {
     let cached_stats = cache
         .get_commit_stats(&range)
         .context("Failed to get cached commit stats")?;
 
     let repo_stats = repo
-        .collect_commits(&range, common.include_merges, common.binary)
+        .collect_commits(&range, include_merges, binary)
         .context("Failed to collect commits from repository")?;
 
     let missing_commits: Vec<_> = repo_stats
@@ -55,6 +49,18 @@ pub fn exec(common: CommonArgs, json: bool, ndjson: bool, path: Option<String>) 
     let all_stats = cache
         .get_commit_stats(&range)
         .context("Failed to get final commit stats")?;
+    Ok(all_stats)
+}
+
+pub fn exec(common: CommonArgs, json: bool, ndjson: bool, path: Option<String>) -> anyhow::Result<()> {
+    let repo = GitRepo::open(common.repo.as_ref()).context("Failed to open git repository")?;
+    let mut cache = Cache::new(common.cache.as_deref(), repo.path()).context("Failed to initialize cache")?;
+
+    let range = repo
+        .resolve_range(common.since.as_deref(), common.until.as_deref())
+        .context("Failed to resolve date range")?;
+
+    let all_stats = fetch_commit_stats(&repo, &mut cache, &range, common.include_merges, common.binary)?;
 
     let heat_data = compute_heat(&all_stats, &cache, path.as_deref())
         .context("Failed to compute heat statistics")?;
