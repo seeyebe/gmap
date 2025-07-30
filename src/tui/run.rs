@@ -5,6 +5,7 @@ use ratatui::backend::CrosstermBackend;
 use super::state::{TuiState, WeekStats, ViewMode};
 use super::input::{apply_search_filter, ensure_selection_in_filtered};
 use crossterm::event::{poll, read, Event, KeyCode};
+use crossterm::event::{KeyEventKind};
 use super::views::{
     draw_heatmap_view,
     draw_statistics_view,
@@ -65,9 +66,12 @@ pub fn run(weeks: Vec<WeekStats>) -> io::Result<()> {
         }
 
         if poll(std::time::Duration::from_millis(200))? {
-            if let Event::Key(key) = read()? {
+            if let Event::Key(key_event) = read()? {
+                if key_event.kind != KeyEventKind::Press {
+                    continue;
+                }
                 if state.search_mode {
-                    match key.code {
+                    match key_event.code {
                         KeyCode::Esc => {
                             state.search_mode = false;
                             state.search_query.clear();
@@ -88,7 +92,7 @@ pub fn run(weeks: Vec<WeekStats>) -> io::Result<()> {
                         _ => {}
                     }
                 } else {
-                    match key.code {
+                    match key_event.code {
                         KeyCode::Char('q') => break,
                         KeyCode::Char('h') | KeyCode::F(1) => state.show_help = !state.show_help,
                         KeyCode::Char('/') => {
