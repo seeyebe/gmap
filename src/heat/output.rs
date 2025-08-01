@@ -5,6 +5,18 @@ use chrono::Utc;
 use console::style;
 use anyhow::Result;
 
+fn intensity_char<'a>(value: f64, max: f64, symbols: &'a [&str]) -> &'a str {
+    if max <= 0.0 {
+        return symbols[0];
+    }
+    let levels = (symbols.len() - 1) as f64;
+    let mut level = ((value / max) * levels).round() as usize;
+    if level > symbols.len() - 1 {
+        level = symbols.len() - 1;
+    }
+    symbols[level]
+}
+
 pub fn output_json(
     heat_data: &[HeatBucket],
     repo: &GitRepo,
@@ -14,8 +26,8 @@ pub fn output_json(
     let output = HeatOutput {
         version: SCHEMA_VERSION,
         generated_at: Utc::now(),
-        repository_path: repo.path().to_string_lossy().to_string(),
-        path_prefix: path_prefix.unwrap_or("").to_string(),
+        repository_path: repo.path().display().to_string(),
+        path_prefix: path_prefix.unwrap_or_default().to_string(),
         since: common.since.clone(),
         until: common.until.clone(),
         buckets: heat_data.to_vec(),
@@ -38,41 +50,28 @@ pub fn output_heatmap(heat_data: &[HeatBucket], common: &CommonArgs) -> Result<(
         return Ok(());
     }
 
-    if let (Some(since), Some(until)) = (&common.since, &common.until) {
-        println!("Filtering commits from {} to {}", since, until);
-    } else if let Some(since) = &common.since {
-        println!("Filtering commits since {}", since);
-    } else if let Some(until) = &common.until {
-        println!("Filtering commits until {}", until);
+    match (&common.since, &common.until) {
+        (Some(since), Some(until)) => {
+            println!("Filtering commits from {} to {}", since, until);
+        }
+        (Some(since), None) => {
+            println!("Filtering commits since {}", since);
+        }
+        (None, Some(until)) => {
+            println!("Filtering commits until {}", until);
+        }
+        _ => {}
     }
 
-    let max_commits = heat_data.iter().map(|b| b.commit_count).max().unwrap_or(1);
-    let max_lines = heat_data.iter().map(|b| b.lines_changed).max().unwrap_or(1);
+    let max_commits = heat_data.iter().map(|b| b.commit_count).max().unwrap_or(1) as f64;
+    let max_lines = heat_data.iter().map(|b| b.lines_changed).max().unwrap_or(1) as f64;
 
     println!("{}", style("Commit Activity Heatmap").bold());
     println!("{}", "─".repeat(50));
 
     for bucket in heat_data {
-        let commit_intensity = ((bucket.commit_count as f64 / max_commits as f64) * 5.0) as u32;
-        let lines_intensity = ((bucket.lines_changed as f64 / max_lines as f64) * 5.0) as u32;
-
-        let commit_char = match commit_intensity {
-            0 => " ",
-            1 => "▁",
-            2 => "▃",
-            3 => "▅",
-            4 => "▇",
-            _ => "█",
-        };
-
-        let lines_char = match lines_intensity {
-            0 => " ",
-            1 => "░",
-            2 => "▒",
-            3 => "▓",
-            4 => "█",
-            _ => "█",
-        };
+        let commit_char = intensity_char(bucket.commit_count as f64, max_commits, &[" ", "▁", "▃", "▅", "▇", "█"]);
+        let lines_char = intensity_char(bucket.lines_changed as f64, max_lines, &[" ", "░", "▒", "▓", "█", "█"]);
 
         println!(
             "{} {} {} commits: {:>3}, lines: {:>6}",

@@ -1,5 +1,5 @@
-use anyhow::Result;
-use clap::{Args, Parser, Subcommand};
+use anyhow::{anyhow, Result};
+use clap::{Args, Parser, Subcommand, ValueHint};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -16,10 +16,10 @@ pub struct Cli {
 
 #[derive(Args, Clone)]
 pub struct CommonArgs {
-    #[arg(long, help = "Path to git repository")]
+    #[arg(long, help = "Path to git repository", value_hint = ValueHint::DirPath)]
     pub repo: Option<PathBuf>,
 
-    #[arg(long, help = "Path to cache database")]
+    #[arg(long, help = "Path to cache database", value_hint = ValueHint::DirPath)]
     pub cache: Option<PathBuf>,
 
     #[arg(long, help = "Include merge commits", default_value_t = true)]
@@ -38,10 +38,10 @@ pub struct CommonArgs {
 #[derive(Subcommand)]
 pub enum Commands {
     Churn {
-        #[arg(long, help = "Output as JSON")]
+        #[arg(long, help = "Output as JSON", conflicts_with = "ndjson")]
         json: bool,
 
-        #[arg(long, help = "Output as NDJSON")]
+        #[arg(long, help = "Output as NDJSON", conflicts_with = "json")]
         ndjson: bool,
 
         #[arg(long, help = "Directory depth for aggregation")]
@@ -51,10 +51,10 @@ pub enum Commands {
         path: Option<String>,
     },
     Heat {
-        #[arg(long, help = "Output as JSON")]
+        #[arg(long, help = "Output as JSON", conflicts_with = "ndjson")]
         json: bool,
 
-        #[arg(long, help = "Output as NDJSON")]
+        #[arg(long, help = "Output as NDJSON", conflicts_with = "json")]
         ndjson: bool,
 
         #[arg(long = "interactive", alias = "tui", alias = "ui", help = "Enable interactive terminal UI")]
@@ -64,19 +64,15 @@ pub enum Commands {
         path: Option<String>,
     },
     Export {
-        #[arg(long, help = "Output as JSON")]
+        #[arg(long, help = "Output as JSON", conflicts_with = "ndjson")]
         json: bool,
 
-        #[arg(long, help = "Output as NDJSON")]
+        #[arg(long, help = "Output as NDJSON", conflicts_with = "json")]
         ndjson: bool,
     },
 }
 
 impl Cli {
-    pub fn parse() -> Self {
-        <Self as Parser>::parse()
-    }
-
     pub fn execute(self) -> Result<()> {
         match self.command {
             Commands::Churn { json, ndjson, depth, path } => {
@@ -84,7 +80,7 @@ impl Cli {
             }
             Commands::Heat { json, ndjson, interactive, path } => {
                 if interactive {
-                    crate::tui::run(&self.common, path).map_err(|e| anyhow::anyhow!(e))
+                    crate::tui::run(&self.common, path).map_err(|e| anyhow!(e))
                 } else {
                     crate::heat::exec(self.common, json, ndjson, path)
                 }

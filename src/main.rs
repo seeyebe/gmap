@@ -1,4 +1,5 @@
 use anyhow::Result;
+use clap::Parser;
 use gmap::cli::Cli;
 
 fn main() -> Result<()> {

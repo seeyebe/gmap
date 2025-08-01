@@ -7,3 +7,4 @@ pub mod export;
 pub mod git;
 pub mod heat;
 pub mod model;
+pub mod util;

@@ -1,33 +1,37 @@
 use std::io;
-use crossterm::terminal::{enable_raw_mode, disable_raw_mode};
-use crossterm::event::{poll, read, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, MouseButton, MouseEvent, MouseEventKind};
-use ratatui::Terminal;
-use ratatui::backend::CrosstermBackend;
-use ratatui::widgets::{Block, Borders, Tabs};
-use ratatui::style::{Style, Color, Modifier};
-use ratatui::layout::{Layout, Direction, Constraint};
+use std::time::Duration;
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
+use crossterm::event::{
+    poll, read, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind,
+    MouseButton, MouseEvent, MouseEventKind,
+};
+use ratatui::{
+    backend::CrosstermBackend,
+    layout::{Constraint, Direction, Layout},
+    style::{Color, Modifier, Style},
+    widgets::{Block, Borders, Tabs},
+    Terminal,
+};
 
 use super::state::{TuiState, ViewMode};
-use super::input::{apply_search_filter, ensure_selection_in_filtered};
+use super::input::{apply_search_filter, ensure_selection_in_filtered, copy_to_clipboard};
 use super::views::{
-    draw_heatmap_view,
-    draw_statistics_view,
-    draw_filetypes_view,
-    draw_timeline_view,
-    draw_help_overlay,
-    draw_commit_details_view,
+    draw_commit_details_view, draw_help_overlay, draw_heatmap_view,
+    draw_statistics_view, draw_timeline_view, draw_file_modal,
 };
 
 use crate::cli::CommonArgs;
 use crate::git::GitRepo;
 use crate::cache::Cache;
 use crate::heat::{aggregate_weeks, fetch_commit_stats, load_commit_details};
-use super::input::copy_to_clipboard;
 
 pub fn run(common: &CommonArgs, path: Option<String>) -> io::Result<()> {
     let repo = GitRepo::open(common.repo.as_ref()).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-    let mut cache = Cache::new(common.cache.as_deref(), repo.path()).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-    let range = repo.resolve_range(common.since.as_deref(), common.until.as_deref()).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    let mut cache = Cache::new(common.cache.as_deref(), repo.path())
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    let range = repo
+        .resolve_range(common.since.as_deref(), common.until.as_deref())
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
     let stats = fetch_commit_stats(&repo, &mut cache, &range, common.include_merges, common.binary)
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
     let weeks = aggregate_weeks(&stats, &cache, path.as_deref());
@@ -37,13 +41,11 @@ pub fn run(common: &CommonArgs, path: Option<String>) -> io::Result<()> {
 
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
     let mut state = TuiState::default();
-
     state.filtered_indices = (0..weeks.len()).collect();
     terminal.clear()?;
 
     loop {
-        let draw_result = terminal.draw(|f| {
-            let state = &mut state;
+        if let Err(e) = terminal.draw(|f| {
             let size = f.size();
 
             if state.show_help {
@@ -51,15 +53,38 @@ pub fn run(common: &CommonArgs, path: Option<String>) -> io::Result<()> {
                 return;
             }
 
+            if state.show_file_modal {
+                let chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Length(3), Constraint::Min(0)])
+                    .split(size);
+                let titles = ["Heatmap", "Stats", "Timeline", "Commits"];
+                let tab_items: Vec<String> = titles.iter().map(|t| t.to_string()).collect();
+                let tabs = Tabs::new(tab_items)
+                    .block(Block::default().borders(Borders::ALL).title("View Mode"))
+                    .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+                    .select(state.tab_index);
+                f.render_widget(tabs, chunks[0]);
+
+                match state.view_mode {
+                    ViewMode::Heatmap => draw_heatmap_view(f, chunks[1], &weeks, &state),
+                    ViewMode::Statistics => draw_statistics_view(f, chunks[1], &weeks, &state),
+                    ViewMode::Timeline => draw_timeline_view(f, chunks[1], &weeks, &state),
+                    ViewMode::CommitDetails => draw_commit_details_view(f, chunks[1], &weeks, &mut state),
+                }
+
+                draw_file_modal(f, size, &weeks[state.selected]);
+                return;
+            }
+
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Length(3),
-                    Constraint::Min(0),
-                ])
+                .constraints([Constraint::Length(3), Constraint::Min(0)])
                 .split(size);
 
-            let tabs = Tabs::new(vec!["Heatmap", "Stats", "Files", "Timeline", "Commits"])
+            let titles = ["Heatmap", "Stats", "Timeline", "Commits"];
+            let tab_items: Vec<String> = titles.iter().map(|t| t.to_string()).collect();
+            let tabs = Tabs::new(tab_items)
                 .block(Block::default().borders(Borders::ALL).title("View Mode"))
                 .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
                 .select(state.tab_index);
@@ -68,32 +93,35 @@ pub fn run(common: &CommonArgs, path: Option<String>) -> io::Result<()> {
             state.view_mode = match state.tab_index {
                 0 => ViewMode::Heatmap,
                 1 => ViewMode::Statistics,
-                2 => ViewMode::FileTypes,
-                3 => ViewMode::Timeline,
-                4 => ViewMode::CommitDetails,
+                2 => ViewMode::Timeline,
+                3 => ViewMode::CommitDetails,
                 _ => ViewMode::Heatmap,
             };
 
             match state.view_mode {
                 ViewMode::Heatmap => draw_heatmap_view(f, chunks[1], &weeks, &state),
                 ViewMode::Statistics => draw_statistics_view(f, chunks[1], &weeks, &state),
-                ViewMode::FileTypes => draw_filetypes_view(f, chunks[1], &weeks, &state),
                 ViewMode::Timeline => draw_timeline_view(f, chunks[1], &weeks, &state),
-                ViewMode::CommitDetails => draw_commit_details_view(f, chunks[1], &weeks, state),
+                ViewMode::CommitDetails => draw_commit_details_view(f, chunks[1], &weeks, &mut state),
             }
-        });
-
-        if let Err(e) = draw_result {
+        }) {
             eprintln!("TUI draw error: {}", e);
         }
 
-        if poll(std::time::Duration::from_millis(200))? {
+        if poll(Duration::from_millis(200))? {
             match read()? {
                 Event::Mouse(mouse_event) => {
                     handle_mouse_event(mouse_event, &mut state, &weeks, &stats, &cache, path.as_deref())?;
                 }
                 Event::Key(key_event) => {
                     if key_event.kind != KeyEventKind::Press {
+                        continue;
+                    }
+
+                    if state.show_file_modal {
+                        if let KeyCode::Esc = key_event.code {
+                            state.show_file_modal = false;
+                        }
                         continue;
                     }
 
@@ -126,11 +154,19 @@ pub fn run(common: &CommonArgs, path: Option<String>) -> io::Result<()> {
                                 state.search_mode = true;
                                 state.search_query.clear();
                             }
+                            KeyCode::Char('f') => {
+                                if !weeks.is_empty() && state.selected < weeks.len() {
+                                    state.show_file_modal = !state.show_file_modal;
+                                }
+                            }
                             KeyCode::Enter => {
-                                if state.view_mode != ViewMode::CommitDetails && !weeks.is_empty() && state.selected < weeks.len() {
+                                if state.view_mode != ViewMode::CommitDetails
+                                    && !weeks.is_empty()
+                                    && state.selected < weeks.len()
+                                {
                                     load_commit_details(&mut state, &weeks, &stats, &cache, path.as_deref())?;
                                     state.view_mode = ViewMode::CommitDetails;
-                                    state.tab_index = 4;
+                                    state.tab_index = 3;
                                 }
                             }
                             KeyCode::Char('c') => {
@@ -154,21 +190,17 @@ pub fn run(common: &CommonArgs, path: Option<String>) -> io::Result<()> {
                                 }
                             }
                             KeyCode::Tab => {
-                                state.tab_index = (state.tab_index + 1) % 5;
+                                state.tab_index = (state.tab_index + 1) % 4;
                             }
                             KeyCode::BackTab => {
-                                state.tab_index = if state.tab_index == 0 { 4 } else { state.tab_index - 1 };
+                                state.tab_index = if state.tab_index == 0 { 3 } else { state.tab_index - 1 };
                             }
                             KeyCode::Left | KeyCode::Char('j') => {
                                 if state.view_mode == ViewMode::CommitDetails {
-                                    if state.commit_selected > 0 {
-                                        state.commit_selected -= 1;
-                                    }
-                                } else {
-                                    if state.selected > 0 {
-                                        state.selected -= 1;
-                                        ensure_selection_in_filtered(&mut state);
-                                    }
+                                    state.commit_selected = state.commit_selected.saturating_sub(1);
+                                } else if state.selected > 0 {
+                                    state.selected -= 1;
+                                    ensure_selection_in_filtered(&mut state);
                                 }
                             }
                             KeyCode::Right | KeyCode::Char('k') => {
@@ -176,11 +208,9 @@ pub fn run(common: &CommonArgs, path: Option<String>) -> io::Result<()> {
                                     if state.commit_selected + 1 < state.commit_details.len() {
                                         state.commit_selected += 1;
                                     }
-                                } else {
-                                    if state.selected + 1 < weeks.len() {
-                                        state.selected += 1;
-                                        ensure_selection_in_filtered(&mut state);
-                                    }
+                                } else if state.selected + 1 < weeks.len() {
+                                    state.selected += 1;
+                                    ensure_selection_in_filtered(&mut state);
                                 }
                             }
                             KeyCode::Home => {
@@ -209,7 +239,10 @@ pub fn run(common: &CommonArgs, path: Option<String>) -> io::Result<()> {
                             }
                             KeyCode::PageDown => {
                                 if state.view_mode == ViewMode::CommitDetails {
-                                    state.commit_selected = std::cmp::min(state.commit_selected + 10, state.commit_details.len().saturating_sub(1));
+                                    state.commit_selected = std::cmp::min(
+                                        state.commit_selected + 10,
+                                        state.commit_details.len().saturating_sub(1),
+                                    );
                                 } else {
                                     state.selected = std::cmp::min(state.selected + 10, weeks.len().saturating_sub(1));
                                     ensure_selection_in_filtered(&mut state);
@@ -241,9 +274,7 @@ fn handle_mouse_event(
     match mouse_event.kind {
         MouseEventKind::ScrollUp => {
             if state.view_mode == ViewMode::CommitDetails {
-                if state.commit_selected > 0 {
-                    state.commit_selected -= 1;
-                }
+                state.commit_selected = state.commit_selected.saturating_sub(1);
             } else if state.selected > 0 {
                 state.selected -= 1;
                 ensure_selection_in_filtered(state);
@@ -265,7 +296,7 @@ fn handle_mouse_event(
                     eprintln!("Error loading commit details: {}", e);
                 } else {
                     state.view_mode = ViewMode::CommitDetails;
-                    state.tab_index = 4;
+                    state.tab_index = 3;
                 }
             }
         }

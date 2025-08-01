@@ -1,20 +1,29 @@
 use crate::cache::Cache;
 use crate::git::GitRepo;
-use crate::model::CommitStats;
+use crate::model::{CommitStats, DateRange};
 use anyhow::Context;
+use std::collections::HashSet;
 
-pub fn fetch_commit_stats(repo: &GitRepo, cache: &mut Cache, range: &crate::model::DateRange, include_merges: bool, binary: bool) -> anyhow::Result<Vec<CommitStats>> {
-    let cached_stats = cache
-        .get_commit_stats(&range)
+pub fn fetch_commit_stats(
+    repo: &GitRepo,
+    cache: &mut Cache,
+    range: &DateRange,
+    include_merges: bool,
+    binary: bool,
+) -> anyhow::Result<Vec<CommitStats>> {
+    let mut cached_stats = cache
+        .get_commit_stats(range)
         .context("Failed to get cached commit stats")?;
 
     let repo_stats = repo
-        .collect_commits(&range, include_merges, binary)
+        .collect_commits(range, include_merges, binary)
         .context("Failed to collect commits from repository")?;
 
-    let missing_commits: Vec<_> = repo_stats
-        .iter()
-        .filter(|stats| !cached_stats.iter().any(|c| c.commit_id == stats.commit_id))
+    let existing_ids: HashSet<&str> = cached_stats.iter().map(|c| c.commit_id.as_str()).collect();
+
+    let missing_commits: Vec<CommitStats> = repo_stats
+        .into_iter()
+        .filter(|stats| !existing_ids.contains(stats.commit_id.as_str()))
         .collect();
 
     if !missing_commits.is_empty() {
@@ -25,15 +34,10 @@ pub fn fetch_commit_stats(repo: &GitRepo, cache: &mut Cache, range: &crate::mode
             }
         }
         cache
-            .store_commit_stats(
-                &missing_commits.iter().map(|&s| s.clone()).collect::<Vec<_>>(),
-                &commit_infos,
-            )
+            .store_commit_stats(&missing_commits, &commit_infos)
             .context("Failed to store commit stats in cache")?;
+        cached_stats.extend(missing_commits.into_iter());
     }
 
-    let all_stats = cache
-        .get_commit_stats(&range)
-        .context("Failed to get final commit stats")?;
-    Ok(all_stats)
+    Ok(cached_stats)
 }

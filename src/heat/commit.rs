@@ -1,14 +1,14 @@
 use crate::tui::{CommitDetail, TuiState, WeekStats};
 use crate::cache::Cache;
 use crate::model::CommitStats;
-use chrono::Datelike;
+use crate::util::{files_matching, week_key};
 use std::io;
 
 pub fn get_commits_for_week(
     stats: &[CommitStats],
     cache: &Cache,
     week: &str,
-    path_prefix: Option<&str>
+    path_prefix: Option<&str>,
 ) -> crate::error::Result<Vec<CommitDetail>> {
     let mut commits = Vec::new();
 
@@ -18,26 +18,17 @@ pub fn get_commits_for_week(
             _ => continue,
         };
 
-        let commit_week = format!("{}-W{:02}",
-            commit_info.timestamp.year(),
-            commit_info.timestamp.iso_week().week()
-        );
-
+        let commit_week = week_key(&commit_info.timestamp);
         if commit_week != week {
             continue;
         }
 
-        let mut has_matching_files = false;
         let mut files_changed = Vec::new();
         let mut lines_added = 0u32;
         let mut lines_deleted = 0u32;
+        let mut has_matching_files = false;
 
-        for file_stats in &commit_stats.files {
-            if let Some(prefix) = path_prefix {
-                if !file_stats.path.starts_with(prefix) {
-                    continue;
-                }
-            }
+        for file_stats in files_matching(&commit_stats.files, path_prefix) {
             has_matching_files = true;
             files_changed.push(file_stats.path.clone());
             lines_added += file_stats.added_lines;
@@ -48,10 +39,15 @@ pub fn get_commits_for_week(
             commits.push(CommitDetail {
                 hash: commit_info.id.clone(),
                 short_hash: commit_info.id.chars().take(8).collect(),
-                message: commit_info.message.lines().next().unwrap_or("").to_string(),
-                author_name: commit_info.author_name,
-                author_email: commit_info.author_email,
-                timestamp: commit_info.timestamp.format("%Y-%m-%d %H:%M:%S").to_string(),
+                message: commit_info
+                    .message
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .to_string(),
+                author_name: commit_info.author_name.clone(),
+                author_email: commit_info.author_email.clone(),
+                timestamp: commit_info.timestamp,
                 files_changed,
                 lines_added,
                 lines_deleted,

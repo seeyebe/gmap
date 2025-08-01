@@ -1,9 +1,9 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-
 use crate::tui::state::{TuiState, WeekStats};
 
+/// Return a centered rectangle of size `percent_x` × `percent_y` inside `r`.
 pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    let popup_layout = Layout::default()
+    let vertical = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Percentage((100 - percent_y) / 2),
@@ -19,42 +19,47 @@ pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
             Constraint::Percentage(percent_x),
             Constraint::Percentage((100 - percent_x) / 2),
         ])
-        .split(popup_layout[1])[1]
+        .split(vertical[1])[1]
 }
 
+/// Select the slice of weeks that should be visible, centering on the selected week when possible.
+/// Returns pairs of (week, is_selected).
 pub fn get_visible_weeks<'a>(
     weeks: &'a [WeekStats],
     state: &TuiState,
     height: usize,
 ) -> Vec<(&'a WeekStats, bool)> {
-    let view_height = height.saturating_sub(8);
-    let filtered_weeks: Vec<_> = state
-        .filtered_indices
-        .iter()
-        .filter_map(|&i| weeks.get(i))
-        .collect();
-
-    if filtered_weeks.is_empty() {
+    if weeks.is_empty() {
         return Vec::new();
     }
 
-    let selected_in_filtered = state
-        .filtered_indices
-        .iter()
-        .position(|&i| i == state.selected)
-        .unwrap_or(0);
+    const VERTICAL_PADDING: usize = 8;
+    let view_height = height.saturating_sub(VERTICAL_PADDING).max(1);
 
-    let start = selected_in_filtered
-        .saturating_sub(view_height / 2)
-        .min(filtered_weeks.len().saturating_sub(view_height));
-    let end = (start + view_height).min(filtered_weeks.len());
+    let indices: Vec<usize> = if state.filtered_indices.is_empty() {
+        (0..weeks.len()).collect()
+    } else {
+        state
+            .filtered_indices
+            .iter()
+            .copied()
+            .filter(|&i| i < weeks.len())
+            .collect()
+    };
 
-    filtered_weeks[start..end]
+    if indices.is_empty() {
+        return Vec::new();
+    }
+
+    let selected_pos = indices.iter().position(|&i| i == state.selected).unwrap_or(0);
+    let mut start = selected_pos.saturating_sub(view_height / 2);
+    if start + view_height > indices.len() {
+        start = indices.len().saturating_sub(view_height);
+    }
+    let end = (start + view_height).min(indices.len());
+
+    indices[start..end]
         .iter()
-        .enumerate()
-        .map(|(i, &week)| {
-            let global_idx = state.filtered_indices[start + i];
-            (week, global_idx == state.selected)
-        })
+        .map(|&global_idx| (&weeks[global_idx], global_idx == state.selected))
         .collect()
 }
