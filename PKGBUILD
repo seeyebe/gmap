@@ -8,7 +8,7 @@ license=('MIT')
 depends=()
 makedepends=('rust' 'cargo' 'git')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/seeyebe/gmap/archive/refs/tags/$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('d256671cbbcba2f1b297237551cce06e387ef524268860eb07bca34c48d85d2c')
 
 build() {
   cd "$pkgname-$pkgver"
