@@ -215,7 +215,9 @@ impl GitRepo {
             self.repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&commit_tree), None)?;
         let mut files = Vec::new();
         for change in changes {
-            self.handle_change(change, binary, &mut files)?;
+            if let Err(err) = self.handle_change(change, binary, &mut files) {
+                eprintln!("Warning: {err}");
+            }
         }
 
         Ok(CommitStats {
