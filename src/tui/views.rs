@@ -704,7 +704,7 @@ pub fn draw_commit_details_view(f: &mut Frame, area: Rect, weeks: &[WeekStats], 
         .split(area);
 
     let main_area = outer_chunks[0];
-    let status_area = outer_chunks[1];
+    let _status_area = outer_chunks[1];
 
     let selected_week = &weeks[state.selected];
 

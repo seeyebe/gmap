@@ -20,7 +20,7 @@ pub fn fetch_commit_stats_with_progress(
     range: &DateRange,
     include_merges: bool,
     binary: bool,
-    progress: bool,
+    _progress: bool,
 ) -> anyhow::Result<Vec<CommitStats>> {
     let mut cached_stats = cache
         .get_commit_stats(range)
