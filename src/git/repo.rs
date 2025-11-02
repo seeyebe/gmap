@@ -369,6 +369,78 @@ impl GitRepo {
             parent_ids: commit.parent_ids().map(|id| id.to_string()).collect(),
         })
     }
+
+    /// List commit IDs within range, honoring include_merges, without computing diffs.
+    pub fn list_commit_ids(
+        &self,
+        range: &DateRange,
+        include_merges: bool,
+    ) -> Result<Vec<ObjectId>> {
+        let mut head = self.repo.head()?;
+        let head_commit = head.peel_to_commit_in_place()?;
+
+        let mut seen: HashSet<ObjectId> = HashSet::new();
+        let mut stack: VecDeque<ObjectId> = VecDeque::from([head_commit.id]);
+        let mut result: Vec<ObjectId> = Vec::new();
+
+        while let Some(commit_id) = stack.pop_back() {
+            if !seen.insert(commit_id) {
+                continue;
+            }
+
+            let commit = self.repo.find_commit(commit_id)?;
+            let secs = commit.time()?.seconds;
+            let timestamp = Utc
+                .timestamp_opt(secs, 0)
+                .single()
+                .ok_or_else(|| GmapError::InvalidDate(format!("Invalid timestamp: {secs}")))?;
+
+            let parents: Vec<ObjectId> = commit.parent_ids().map(|id| id.into()).collect();
+
+            if !range.contains(&timestamp) {
+                for pid in &parents {
+                    stack.push_back(*pid);
+                }
+                continue;
+            }
+
+            if !include_merges && parents.len() > 1 {
+                for pid in &parents {
+                    stack.push_back(*pid);
+                }
+                continue;
+            }
+
+            result.push(commit_id);
+            for pid in &parents {
+                stack.push_back(*pid);
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Compute commit stats for a single commit by ID, using first parent when present.
+    pub fn compute_commit_stats_for(&self, commit_id: ObjectId, binary: bool) -> Result<CommitStats> {
+        let commit = self.repo.find_commit(commit_id)?;
+        let parent_id: Option<ObjectId> = commit.parent_ids().next().map(|id| id.into());
+
+        let commit_tree = commit.tree()?;
+        let parent_tree = if let Some(pid) = parent_id {
+            Some(self.repo.find_commit(pid)?.tree()?)
+        } else {
+            None
+        };
+
+        let changes: Vec<ChangeDetached> =
+            self.repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&commit_tree), None)?;
+        let mut files = Vec::new();
+        for change in changes {
+            self.handle_change(change, binary, &mut files)?;
+        }
+
+        Ok(CommitStats { commit_id: commit.id.to_string(), files })
+    }
 }
 
 fn parse_natural_duration(input: &str) -> Option<ChronoDuration> {
