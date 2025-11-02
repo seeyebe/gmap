@@ -44,13 +44,10 @@ impl GitRepo {
         let until_dt = until.map(|u| self.parse_commit_or_date(u)).transpose()?;
         if let (Some(s), Some(u)) = (since_dt, until_dt) {
             if s > u {
-                return Err(
-                    GmapError::InvalidDate(format!(
-                        "Invalid range: since ({}) is after until ({})",
-                        s, u
-                    ))
-                    .into(),
-                );
+                return Err(GmapError::InvalidDate(format!(
+                    "Invalid range: since ({}) is after until ({})",
+                    s, u
+                )));
             }
         }
 
@@ -106,6 +103,7 @@ impl GitRepo {
         range: &DateRange,
         include_merges: bool,
         binary: bool,
+        progress: bool,
     ) -> Result<Vec<CommitStats>> {
         let mut head = self.repo.head()?;
         let head_commit = head.peel_to_commit_in_place()?;
@@ -114,7 +112,7 @@ impl GitRepo {
         let mut seen: HashSet<ObjectId> = HashSet::new();
         let mut stack: VecDeque<ObjectId> = VecDeque::from([head_commit.id]);
         let mut commit_cache: HashMap<ObjectId, CommitMeta> = HashMap::new();
-        let pb = ProgressBar::new_spinner();
+        let pb = if progress { ProgressBar::new_spinner() } else { ProgressBar::hidden() };
         pb.set_style(
             ProgressStyle::default_spinner()
                 .template("{spinner:.green} {msg}")
@@ -311,7 +309,7 @@ impl GitRepo {
         Ok(())
     }
 
-    fn inspect_object(&self, id: gix::ObjectId) -> Result<(bool, u32, gix::Object)> {
+    fn inspect_object(&self, id: gix::ObjectId) -> Result<(bool, u32, gix::Object<'_>)> {
         let obj = self.repo.find_object(id)?;
         let is_binary = self.is_binary_object(&obj);
         let lines = if is_binary { 0 } else { self.count_lines(&obj)? };
@@ -332,54 +330,24 @@ impl GitRepo {
         let old_text = std::str::from_utf8(old_object.data.as_slice()).unwrap_or("");
         let new_text = std::str::from_utf8(new_object.data.as_slice()).unwrap_or("");
 
-        let old_lines: Vec<&str> = old_text.lines().collect();
-        let new_lines: Vec<&str> = new_text.lines().collect();
+        let mut added = 0u32;
+        let mut deleted = 0u32;
 
-        let mut added = 0usize;
-        let mut deleted = 0usize;
-        let (mut oi, mut ni) = (0usize, 0usize);
-
-        while oi < old_lines.len() || ni < new_lines.len() {
-            if oi >= old_lines.len() {
-                added += new_lines.len() - ni;
-                break;
-            }
-            if ni >= new_lines.len() {
-                deleted += old_lines.len() - oi;
-                break;
-            }
-
-            if old_lines[oi] == new_lines[ni] {
-                oi += 1;
-                ni += 1;
-                continue;
-            }
-
-            let mut found = false;
-            for look_ahead in 1..=3 {
-                if oi + look_ahead < old_lines.len() && old_lines[oi + look_ahead] == new_lines[ni] {
-                    deleted += look_ahead;
-                    oi += look_ahead;
-                    found = true;
-                    break;
+        let diff = similar::TextDiff::from_lines(old_text, new_text);
+        for op in diff.ops() {
+            use similar::DiffTag::*;
+            match op.tag() {
+                Insert => added += op.new_range().len() as u32,
+                Delete => deleted += op.old_range().len() as u32,
+                Replace => {
+                    deleted += op.old_range().len() as u32;
+                    added += op.new_range().len() as u32;
                 }
-                if ni + look_ahead < new_lines.len() && old_lines[oi] == new_lines[ni + look_ahead] {
-                    added += look_ahead;
-                    ni += look_ahead;
-                    found = true;
-                    break;
-                }
-            }
-
-            if !found {
-                deleted += 1;
-                added += 1;
-                oi += 1;
-                ni += 1;
+                Equal => {}
             }
         }
 
-        Ok((added as u32, deleted as u32))
+        Ok((added, deleted))
     }
 
     pub fn get_commit_info(&self, commit_id: &str) -> Result<CommitInfo> {
@@ -420,5 +388,11 @@ fn parse_natural_duration(input: &str) -> Option<ChronoDuration> {
             }
         }
     }
-    None
+    match input.as_str() {
+        "yesterday" => Some(ChronoDuration::days(1)),
+        "today" | "now" => Some(ChronoDuration::seconds(0)),
+        "last week" => Some(ChronoDuration::weeks(1)),
+        "last month" => Some(ChronoDuration::days(30)),
+        _ => None,
+    }
 }

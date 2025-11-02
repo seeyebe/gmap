@@ -2,10 +2,11 @@ use crate::cache::Cache;
 use crate::cli::CommonArgs;
 use crate::error::Result;
 use crate::git::GitRepo;
+use crate::heat::fetch_commit_stats_with_progress;
 use crate::model::{ExportEntry, ExportOutput, CommitStats};
 use anyhow::Context;
 use chrono::Utc;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 pub fn exec(common: CommonArgs, json: bool, ndjson: bool) -> anyhow::Result<()> {
     let repo = GitRepo::open(common.repo.as_ref())
@@ -17,38 +18,21 @@ pub fn exec(common: CommonArgs, json: bool, ndjson: bool) -> anyhow::Result<()> 
         .resolve_range(common.since.as_deref(), common.until.as_deref())
         .context("Failed to resolve date range")?;
 
-    let mut cached_stats = cache
-        .get_commit_stats(&range)
-        .context("Failed to get cached commit stats")?;
+    let cached_stats = fetch_commit_stats_with_progress(
+        &repo,
+        &mut cache,
+        &range,
+        common.include_merges,
+        common.binary,
+        false,
+    )?;
 
-    let repo_stats = repo
-        .collect_commits(&range, common.include_merges, common.binary)
-        .context("Failed to collect commits from repository")?;
-
-    let existing_ids: HashSet<&str> = cached_stats.iter().map(|c| c.commit_id.as_str()).collect();
-    let missing_commits: Vec<CommitStats> = repo_stats
-        .into_iter()
-        .filter(|stats| !existing_ids.contains(stats.commit_id.as_str()))
-        .collect();
-
-    if !missing_commits.is_empty() {
-        let mut commit_infos = HashMap::new();
-        for stats in &missing_commits {
-            if let Ok(info) = repo.get_commit_info(&stats.commit_id) {
-                commit_infos.insert(stats.commit_id.clone(), info);
-            }
-        }
-
-        if !commit_infos.is_empty() {
-            cache
-                .store_commit_stats(&missing_commits, &commit_infos)
-                .context("Failed to store commit stats in cache")?;
-        }
-
-        cached_stats.extend(missing_commits.into_iter());
-    }
-
-    let export_data = prepare_export_data(&cached_stats, &cache)
+    let export_data = prepare_export_data(
+        &cached_stats,
+        &cache,
+        common.author.as_deref(),
+        common.author_email.as_deref(),
+    )
         .context("Failed to prepare export data")?;
 
     if json {
@@ -65,6 +49,8 @@ pub fn exec(common: CommonArgs, json: bool, ndjson: bool) -> anyhow::Result<()> 
 fn prepare_export_data(
     stats: &[CommitStats],
     cache: &Cache,
+    author: Option<&str>,
+    author_email: Option<&str>,
 ) -> Result<Vec<ExportEntry>> {
     let mut entries = Vec::with_capacity(stats.len());
 
@@ -72,6 +58,13 @@ fn prepare_export_data(
         let commit_info = cache
             .get_commit_info(&commit_stats.commit_id)?
             .ok_or_else(|| crate::error::GmapError::Cache("Commit info not found".to_string()))?;
+
+        if let Some(a) = author {
+            if !commit_info.author_name.to_lowercase().contains(&a.to_lowercase()) { continue; }
+        }
+        if let Some(ae) = author_email {
+            if !commit_info.author_email.to_lowercase().contains(&ae.to_lowercase()) { continue; }
+        }
 
         entries.push(ExportEntry {
             commit_id: commit_info.id,

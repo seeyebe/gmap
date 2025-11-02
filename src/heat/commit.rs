@@ -1,14 +1,17 @@
 use crate::tui::{CommitDetail, TuiState, WeekStats};
 use crate::cache::Cache;
 use crate::model::CommitStats;
-use crate::util::{files_matching, week_key};
+use crate::util::{files_matching, period_key};
 use std::io;
 
-pub fn get_commits_for_week(
+pub fn get_commits_for_period(
     stats: &[CommitStats],
     cache: &Cache,
-    week: &str,
+    period: &str,
     path_prefix: Option<&str>,
+    author: Option<&str>,
+    author_email: Option<&str>,
+    monthly: bool,
 ) -> crate::error::Result<Vec<CommitDetail>> {
     let mut commits = Vec::new();
 
@@ -18,8 +21,15 @@ pub fn get_commits_for_week(
             _ => continue,
         };
 
-        let commit_week = week_key(&commit_info.timestamp);
-        if commit_week != week {
+        if let Some(a) = author {
+            if !commit_info.author_name.to_lowercase().contains(&a.to_lowercase()) { continue; }
+        }
+        if let Some(ae) = author_email {
+            if !commit_info.author_email.to_lowercase().contains(&ae.to_lowercase()) { continue; }
+        }
+
+        let commit_period = period_key(&commit_info.timestamp, monthly);
+        if commit_period != period {
             continue;
         }
 
@@ -65,6 +75,9 @@ pub fn load_commit_details(
     stats: &[CommitStats],
     cache: &Cache,
     path_prefix: Option<&str>,
+    author: Option<&str>,
+    author_email: Option<&str>,
+    monthly: bool,
 ) -> io::Result<()> {
     if state.selected >= weeks.len() {
         return Ok(());
@@ -73,7 +86,15 @@ pub fn load_commit_details(
     state.loading_commits = true;
     let selected_week = &weeks[state.selected];
 
-    match get_commits_for_week(stats, cache, &selected_week.week, path_prefix) {
+    match get_commits_for_period(
+        stats,
+        cache,
+        &selected_week.week,
+        path_prefix,
+        author,
+        author_email,
+        monthly,
+    ) {
         Ok(commits) => {
             state.commit_details = commits;
             state.commit_selected = 0;
@@ -82,7 +103,7 @@ pub fn load_commit_details(
         Err(e) => {
             eprintln!("Error loading commits: {}", e);
             state.loading_commits = false;
-            return Err(io::Error::new(io::ErrorKind::Other, e));
+            return Err(io::Error::other(e));
         }
     }
 

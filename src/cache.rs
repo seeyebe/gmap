@@ -71,7 +71,7 @@ impl Cache {
 
     pub fn get_commit_stats(&self, range: &DateRange) -> Result<Vec<CommitStats>> {
         let mut query = String::from(
-            "SELECT c.id, f.path, f.added_lines, f.deleted_lines, f.is_binary
+            "SELECT c.id, c.timestamp, f.path, f.added_lines, f.deleted_lines, f.is_binary
              FROM commits c
              LEFT JOIN files f ON c.id = f.commit_id
              WHERE 1=1",
@@ -94,10 +94,11 @@ impl Cache {
             bind_refs.as_slice(),
             |row| {
                 let commit_id: String = row.get(0)?;
-                let path_opt: Option<String> = row.get(1)?;
-                let added_opt: Option<u32> = row.get(2)?;
-                let deleted_opt: Option<u32> = row.get(3)?;
-                let is_binary_opt: Option<i64> = row.get(4)?;
+                let ts: i64 = row.get(1)?;
+                let path_opt: Option<String> = row.get(2)?;
+                let added_opt: Option<u32> = row.get(3)?;
+                let deleted_opt: Option<u32> = row.get(4)?;
+                let is_binary_opt: Option<i64> = row.get(5)?;
                 let mut files = Vec::new();
                 if let (Some(path), Some(added), Some(deleted), Some(is_binary_int)) =
                     (path_opt, added_opt, deleted_opt, is_binary_opt)
@@ -110,23 +111,29 @@ impl Cache {
                         is_binary,
                     });
                 }
-                Ok((commit_id, files))
+                Ok((commit_id, ts, files))
             },
         )?;
 
-        let mut commits_map: HashMap<String, Vec<FileStats>> = HashMap::new();
+        let mut commits_map: HashMap<String, (i64, Vec<FileStats>)> = HashMap::new();
         for row in rows {
-            let (commit_id, mut files) = row?;
-            commits_map.entry(commit_id).or_default().append(&mut files);
+            let (commit_id, ts, mut files) = row?;
+            let entry = commits_map.entry(commit_id).or_insert((ts, Vec::new()));
+            // keep the earliest timestamp seen for determinism (should be identical per commit)
+            if ts < entry.0 { entry.0 = ts; }
+            entry.1.append(&mut files);
         }
 
-        let mut result: Vec<CommitStats> = commits_map
+        let mut items: Vec<(String, i64, Vec<FileStats>)> = commits_map
             .into_iter()
-            .map(|(commit_id, files)| CommitStats { commit_id, files })
+            .map(|(id, (ts, files))| (id, ts, files))
             .collect();
+        items.sort_by(|a, b| a.1.cmp(&b.1));
 
-        result.sort_by(|a, b| a.commit_id.cmp(&b.commit_id));
-        Ok(result)
+        Ok(items
+            .into_iter()
+            .map(|(commit_id, _ts, files)| CommitStats { commit_id, files })
+            .collect())
     }
 
     pub fn store_commit_stats(

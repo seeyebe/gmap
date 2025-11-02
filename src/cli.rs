@@ -22,11 +22,20 @@ pub struct CommonArgs {
     #[arg(long, help = "Path to cache database", value_hint = ValueHint::DirPath)]
     pub cache: Option<PathBuf>,
 
-    #[arg(long, help = "Include merge commits", default_value_t = true)]
+    #[arg(long, help = "Include merge commits", default_value_t = false)]
     pub include_merges: bool,
 
     #[arg(long, help = "Include binary files", default_value_t = false)]
     pub binary: bool,
+
+    #[arg(long = "exclude", help = "Exclude paths matching any of these substrings", num_args = 1.., value_delimiter = ',')]
+    pub exclude: Vec<String>,
+
+    #[arg(long, help = "Filter by author name (substring, case-insensitive)")]
+    pub author: Option<String>,
+
+    #[arg(long, help = "Filter by author email (substring, case-insensitive)")]
+    pub author_email: Option<String>,
 
     #[arg(long, help = "Start from this commit or date (RFC3339, YYYY-MM-DD, or natural language)")]
     pub since: Option<String>,
@@ -60,6 +69,9 @@ pub enum Commands {
         #[arg(long = "interactive", alias = "tui", alias = "ui", help = "Enable interactive terminal UI")]
         interactive: bool,
 
+        #[arg(long, help = "Group by month instead of week")]
+        monthly: bool,
+
         #[arg(help = "Path prefix to analyze")]
         path: Option<String>,
     },
@@ -78,11 +90,11 @@ impl Cli {
             Commands::Churn { json, ndjson, depth, path } => {
                 crate::churn::exec(self.common, depth, json, ndjson, path)
             }
-            Commands::Heat { json, ndjson, interactive, path } => {
+            Commands::Heat { json, ndjson, interactive, monthly, path } => {
                 if interactive {
-                    crate::tui::run(&self.common, path).map_err(|e| anyhow!(e))
+                    crate::tui::run(&self.common, path, monthly).map_err(|e| anyhow!(e))
                 } else {
-                    crate::heat::exec(self.common, json, ndjson, path)
+                    crate::heat::exec(self.common, json, ndjson, path, monthly)
                 }
             }
             Commands::Export { json, ndjson } => {

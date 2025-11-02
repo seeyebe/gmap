@@ -3,7 +3,7 @@ use crate::tui::WeekStats;
 use super::FileExtensionStats;
 use crate::model::CommitStats;
 use crate::error::{Result, GmapError};
-use crate::util::{files_matching, week_key};
+use crate::util::{files_matching, period_key, path_excluded, GitIgnoreMatcher};
 use std::collections::HashMap;
 use std::path::Path;
 use crate::model::HeatBucket;
@@ -21,6 +21,11 @@ pub fn aggregate_weeks(
     stats: &[CommitStats],
     cache: &Cache,
     path_prefix: Option<&str>,
+    author: Option<&str>,
+    author_email: Option<&str>,
+    monthly: bool,
+    excludes: &[String],
+    git_ignore: Option<&std::cell::RefCell<GitIgnoreMatcher>>,
 ) -> Vec<WeekStats> {
     let mut week_map: HashMap<String, WeekAccum> = HashMap::new();
 
@@ -30,7 +35,14 @@ pub fn aggregate_weeks(
             _ => continue,
         };
 
-        let week_key = week_key(&commit_info.timestamp);
+        if let Some(a) = author {
+            if !commit_info.author_name.to_lowercase().contains(&a.to_lowercase()) { continue; }
+        }
+        if let Some(ae) = author_email {
+            if !commit_info.author_email.to_lowercase().contains(&ae.to_lowercase()) { continue; }
+        }
+
+        let week_key = period_key(&commit_info.timestamp, monthly);
 
         let filtered_files: Vec<&crate::model::FileStats> =
             files_matching(&commit_stats.files, path_prefix).collect();
@@ -42,6 +54,8 @@ pub fn aggregate_weeks(
         let mut added = 0;
         let mut deleted = 0;
         for file_stats in &filtered_files {
+            if path_excluded(&file_stats.path, excludes) { continue; }
+            if let Some(gi) = git_ignore { if gi.borrow_mut().is_ignored(&file_stats.path) { continue; } }
             added += file_stats.added_lines as usize;
             deleted += file_stats.deleted_lines as usize;
         }
@@ -61,6 +75,8 @@ pub fn aggregate_weeks(
         *entry.authors.entry(commit_info.author_name.clone()).or_insert(0) += 1;
 
         for file_stats in &filtered_files {
+            if path_excluded(&file_stats.path, excludes) { continue; }
+            if let Some(gi) = git_ignore { if gi.borrow_mut().is_ignored(&file_stats.path) { continue; } }
             let extension = Path::new(&file_stats.path)
                 .extension()
                 .and_then(|s| s.to_str())
@@ -125,6 +141,11 @@ pub fn compute_heat(
     stats: &[CommitStats],
     cache: &Cache,
     path_prefix: Option<&str>,
+    author: Option<&str>,
+    author_email: Option<&str>,
+    monthly: bool,
+    excludes: &[String],
+    git_ignore: Option<&std::cell::RefCell<GitIgnoreMatcher>>,
 ) -> Result<Vec<HeatBucket>> {
     let mut week_map: HashMap<String, (u32, u64)> = HashMap::new();
 
@@ -133,12 +154,21 @@ pub fn compute_heat(
             .get_commit_info(&commit_stats.commit_id)?
             .ok_or_else(|| GmapError::Cache("Commit info not found".to_string()))?;
 
-        let week_key = week_key(&commit_info.timestamp);
+        if let Some(a) = author {
+            if !commit_info.author_name.to_lowercase().contains(&a.to_lowercase()) { continue; }
+        }
+        if let Some(ae) = author_email {
+            if !commit_info.author_email.to_lowercase().contains(&ae.to_lowercase()) { continue; }
+        }
+
+        let week_key = period_key(&commit_info.timestamp, monthly);
 
         let mut lines_changed = 0u64;
         let mut has_matching_files = false;
 
         for file_stats in files_matching(&commit_stats.files, path_prefix) {
+            if path_excluded(&file_stats.path, excludes) { continue; }
+            if let Some(gi) = git_ignore { if gi.borrow_mut().is_ignored(&file_stats.path) { continue; } }
             has_matching_files = true;
             lines_changed += (file_stats.added_lines + file_stats.deleted_lines) as u64;
         }

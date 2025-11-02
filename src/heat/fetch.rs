@@ -11,12 +11,23 @@ pub fn fetch_commit_stats(
     include_merges: bool,
     binary: bool,
 ) -> anyhow::Result<Vec<CommitStats>> {
+    fetch_commit_stats_with_progress(repo, cache, range, include_merges, binary, true)
+}
+
+pub fn fetch_commit_stats_with_progress(
+    repo: &GitRepo,
+    cache: &mut Cache,
+    range: &DateRange,
+    include_merges: bool,
+    binary: bool,
+    progress: bool,
+) -> anyhow::Result<Vec<CommitStats>> {
     let mut cached_stats = cache
         .get_commit_stats(range)
         .context("Failed to get cached commit stats")?;
 
     let repo_stats = repo
-        .collect_commits(range, include_merges, binary)
+        .collect_commits(range, include_merges, binary, progress)
         .context("Failed to collect commits from repository")?;
 
     let existing_ids: HashSet<&str> = cached_stats.iter().map(|c| c.commit_id.as_str()).collect();
@@ -36,7 +47,7 @@ pub fn fetch_commit_stats(
         cache
             .store_commit_stats(&missing_commits, &commit_infos)
             .context("Failed to store commit stats in cache")?;
-        cached_stats.extend(missing_commits.into_iter());
+    cached_stats.extend(missing_commits);
     }
 
     Ok(cached_stats)
