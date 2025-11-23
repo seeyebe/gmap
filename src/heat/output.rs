@@ -1,9 +1,9 @@
 use crate::cli::CommonArgs;
 use crate::git::GitRepo;
 use crate::model::{HeatBucket, HeatOutput, SCHEMA_VERSION};
+use anyhow::Result;
 use chrono::Utc;
 use console::style;
-use anyhow::Result;
 
 fn intensity_char<'a>(value: f64, max: f64, symbols: &'a [&str]) -> &'a str {
     if max <= 0.0 {
@@ -52,13 +52,13 @@ pub fn output_heatmap(heat_data: &[HeatBucket], common: &CommonArgs) -> Result<(
 
     match (&common.since, &common.until) {
         (Some(since), Some(until)) => {
-            println!("Filtering commits from {} to {}", since, until);
+            println!("Filtering commits from {since} to {until}");
         }
         (Some(since), None) => {
-            println!("Filtering commits since {}", since);
+            println!("Filtering commits since {since}");
         }
         (None, Some(until)) => {
-            println!("Filtering commits until {}", until);
+            println!("Filtering commits until {until}");
         }
         _ => {}
     }
@@ -70,8 +70,16 @@ pub fn output_heatmap(heat_data: &[HeatBucket], common: &CommonArgs) -> Result<(
     println!("{}", "─".repeat(50));
 
     for bucket in heat_data {
-        let commit_char = intensity_char(bucket.commit_count as f64, max_commits, &[" ", "▁", "▃", "▅", "▇", "█"]);
-        let lines_char = intensity_char(bucket.lines_changed as f64, max_lines, &[" ", "░", "▒", "▓", "█", "█"]);
+        let commit_char = intensity_char(
+            bucket.commit_count as f64,
+            max_commits,
+            &[" ", "▁", "▃", "▅", "▇", "█"],
+        );
+        let lines_char = intensity_char(
+            bucket.lines_changed as f64,
+            max_lines,
+            &[" ", "░", "▒", "▓", "█", "█"],
+        );
 
         println!(
             "{} {} {} commits: {:>3}, lines: {:>6}",

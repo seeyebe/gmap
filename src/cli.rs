@@ -37,10 +37,16 @@ pub struct CommonArgs {
     #[arg(long, help = "Filter by author email (substring, case-insensitive)")]
     pub author_email: Option<String>,
 
-    #[arg(long, help = "Start from this commit or date (RFC3339, YYYY-MM-DD, or natural language)")]
+    #[arg(
+        long,
+        help = "Start from this commit or date (RFC3339, YYYY-MM-DD, or natural language)"
+    )]
     pub since: Option<String>,
 
-    #[arg(long, help = "End at this commit or date (RFC3339, YYYY-MM-DD, or natural language)")]
+    #[arg(
+        long,
+        help = "End at this commit or date (RFC3339, YYYY-MM-DD, or natural language)"
+    )]
     pub until: Option<String>,
 }
 
@@ -66,7 +72,12 @@ pub enum Commands {
         #[arg(long, help = "Output as NDJSON", conflicts_with = "json")]
         ndjson: bool,
 
-        #[arg(long = "interactive", alias = "tui", alias = "ui", help = "Enable interactive terminal UI")]
+        #[arg(
+            long = "interactive",
+            alias = "tui",
+            alias = "ui",
+            help = "Enable interactive terminal UI"
+        )]
         interactive: bool,
 
         #[arg(long, help = "Group by month instead of week")]
@@ -87,19 +98,26 @@ pub enum Commands {
 impl Cli {
     pub fn execute(self) -> Result<()> {
         match self.command {
-            Commands::Churn { json, ndjson, depth, path } => {
-                crate::churn::exec(self.common, depth, json, ndjson, path)
-            }
-            Commands::Heat { json, ndjson, interactive, monthly, path } => {
+            Commands::Churn {
+                json,
+                ndjson,
+                depth,
+                path,
+            } => crate::churn::exec(self.common, depth, json, ndjson, path),
+            Commands::Heat {
+                json,
+                ndjson,
+                interactive,
+                monthly,
+                path,
+            } => {
                 if interactive {
                     crate::tui::run(&self.common, path, monthly).map_err(|e| anyhow!(e))
                 } else {
                     crate::heat::exec(self.common, json, ndjson, path, monthly)
                 }
             }
-            Commands::Export { json, ndjson } => {
-                crate::export::exec(self.common, json, ndjson)
-            }
+            Commands::Export { json, ndjson } => crate::export::exec(self.common, json, ndjson),
         }
     }
 }

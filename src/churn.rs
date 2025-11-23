@@ -4,15 +4,22 @@ use crate::error::Result;
 use crate::git::GitRepo;
 use crate::heat::fetch_commit_stats_with_progress;
 use crate::model::{ChurnEntry, ChurnOutput, CommitStats};
+use crate::util::path_excluded;
 use anyhow::Context;
 use chrono::Utc;
 use console::style;
 use std::collections::HashMap;
-use crate::util::path_excluded;
 
-pub fn exec(common: CommonArgs, depth: Option<u32>, json: bool, ndjson: bool, path: Option<String>) -> anyhow::Result<()> {
+pub fn exec(
+    common: CommonArgs,
+    depth: Option<u32>,
+    json: bool,
+    ndjson: bool,
+    path: Option<String>,
+) -> anyhow::Result<()> {
     let repo = GitRepo::open(common.repo.as_ref()).context("Failed to open git repository")?;
-    let mut cache = Cache::new(common.cache.as_deref(), repo.path()).context("Failed to initialize cache")?;
+    let mut cache =
+        Cache::new(common.cache.as_deref(), repo.path()).context("Failed to initialize cache")?;
 
     let range = repo
         .resolve_range(common.since.as_deref(), common.until.as_deref())
@@ -36,7 +43,7 @@ pub fn exec(common: CommonArgs, depth: Option<u32>, json: bool, ndjson: bool, pa
         common.author_email.as_deref(),
         &common.exclude,
     )
-        .context("Failed to compute churn statistics")?;
+    .context("Failed to compute churn statistics")?;
 
     if json {
         output_json(&churn, &repo, &common, depth)?;
@@ -65,10 +72,18 @@ fn compute_churn(
             .ok_or_else(|| crate::error::GmapError::Cache("Commit info not found".to_string()))?;
 
         if let Some(a) = author {
-            if !info.author_name.to_lowercase().contains(&a.to_lowercase()) { continue; }
+            if !info.author_name.to_lowercase().contains(&a.to_lowercase()) {
+                continue;
+            }
         }
         if let Some(ae) = author_email {
-            if !info.author_email.to_lowercase().contains(&ae.to_lowercase()) { continue; }
+            if !info
+                .author_email
+                .to_lowercase()
+                .contains(&ae.to_lowercase())
+            {
+                continue;
+            }
         }
 
         for f in &cs.files {
@@ -77,13 +92,17 @@ fn compute_churn(
                     continue;
                 }
             }
-            if path_excluded(&f.path, excludes) { continue; }
+            if path_excluded(&f.path, excludes) {
+                continue;
+            }
             let agg = if let Some(d) = depth {
                 aggregate_path(&f.path, d)
             } else {
                 f.path.clone()
             };
-            let entry = map.entry(agg.clone()).or_insert_with(|| ChurnEntry::new(agg));
+            let entry = map
+                .entry(agg.clone())
+                .or_insert_with(|| ChurnEntry::new(agg));
             entry.add_stats(f, &info.author_name);
         }
     }
@@ -101,7 +120,12 @@ fn aggregate_path(path: &str, depth: u32) -> String {
     }
 }
 
-fn output_json(churn_data: &[ChurnEntry], repo: &GitRepo, common: &CommonArgs, depth: Option<u32>) -> anyhow::Result<()> {
+fn output_json(
+    churn_data: &[ChurnEntry],
+    repo: &GitRepo,
+    common: &CommonArgs,
+    depth: Option<u32>,
+) -> anyhow::Result<()> {
     let output = ChurnOutput {
         version: crate::model::SCHEMA_VERSION,
         generated_at: Utc::now(),

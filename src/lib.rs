@@ -1,4 +1,3 @@
-pub mod tui;
 pub mod cache;
 pub mod churn;
 pub mod cli;
@@ -7,4 +6,5 @@ pub mod export;
 pub mod git;
 pub mod heat;
 pub mod model;
+pub mod tui;
 pub mod util;
