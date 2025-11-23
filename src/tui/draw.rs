@@ -11,8 +11,8 @@ pub fn enhanced_intensity_bar(commits: usize, max: usize) -> String {
 
     let ratio = commits as f64 / max as f64;
     let filled = ((ratio * WIDTH as f64).round() as usize).min(WIDTH);
-    let intensity_idx = ((ratio * (LEVELS.len() - 1) as f64).round() as usize)
-        .min(LEVELS.len() - 1);
+    let intensity_idx =
+        ((ratio * (LEVELS.len() - 1) as f64).round() as usize).min(LEVELS.len() - 1);
 
     let bar_char = LEVELS[intensity_idx];
     bar_char.repeat(filled) + &"░".repeat(WIDTH - filled)
@@ -28,7 +28,9 @@ pub fn get_intensity_color(commits: usize, max: usize) -> Style {
     if ratio > 0.8 {
         Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
     } else if ratio > 0.6 {
-        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
     } else if ratio > 0.4 {
         Style::default().fg(Color::Green)
     } else if ratio > 0.2 {
