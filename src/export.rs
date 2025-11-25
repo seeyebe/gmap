@@ -3,16 +3,15 @@ use crate::cli::CommonArgs;
 use crate::error::Result;
 use crate::git::GitRepo;
 use crate::heat::fetch_commit_stats_with_progress;
-use crate::model::{ExportEntry, ExportOutput, CommitStats};
+use crate::model::{CommitStats, ExportEntry, ExportOutput};
 use anyhow::Context;
 use chrono::Utc;
 use std::collections::HashSet;
 
 pub fn exec(common: CommonArgs, json: bool, ndjson: bool) -> anyhow::Result<()> {
-    let repo = GitRepo::open(common.repo.as_ref())
-        .context("Failed to open git repository")?;
-    let mut cache = Cache::new(common.cache.as_deref(), repo.path())
-        .context("Failed to initialize cache")?;
+    let repo = GitRepo::open(common.repo.as_ref()).context("Failed to open git repository")?;
+    let mut cache =
+        Cache::new(common.cache.as_deref(), repo.path()).context("Failed to initialize cache")?;
 
     let range = repo
         .resolve_range(common.since.as_deref(), common.until.as_deref())
@@ -33,7 +32,7 @@ pub fn exec(common: CommonArgs, json: bool, ndjson: bool) -> anyhow::Result<()> 
         common.author.as_deref(),
         common.author_email.as_deref(),
     )
-        .context("Failed to prepare export data")?;
+    .context("Failed to prepare export data")?;
 
     if json {
         output_json(&export_data, &repo, &common)?;
@@ -60,10 +59,22 @@ fn prepare_export_data(
             .ok_or_else(|| crate::error::GmapError::Cache("Commit info not found".to_string()))?;
 
         if let Some(a) = author {
-            if !commit_info.author_name.to_lowercase().contains(&a.to_lowercase()) { continue; }
+            if !commit_info
+                .author_name
+                .to_lowercase()
+                .contains(&a.to_lowercase())
+            {
+                continue;
+            }
         }
         if let Some(ae) = author_email {
-            if !commit_info.author_email.to_lowercase().contains(&ae.to_lowercase()) { continue; }
+            if !commit_info
+                .author_email
+                .to_lowercase()
+                .contains(&ae.to_lowercase())
+            {
+                continue;
+            }
         }
 
         entries.push(ExportEntry {
@@ -80,7 +91,11 @@ fn prepare_export_data(
     Ok(entries)
 }
 
-fn output_json(export_data: &[ExportEntry], repo: &GitRepo, common: &CommonArgs) -> anyhow::Result<()> {
+fn output_json(
+    export_data: &[ExportEntry],
+    repo: &GitRepo,
+    common: &CommonArgs,
+) -> anyhow::Result<()> {
     let output = ExportOutput {
         version: crate::model::SCHEMA_VERSION,
         generated_at: Utc::now(),
@@ -120,8 +135,7 @@ fn output_summary(export_data: &[ExportEntry]) -> anyhow::Result<()> {
         .map(|f| f.deleted_lines as u64)
         .sum();
 
-    let unique_authors: HashSet<_> =
-        export_data.iter().map(|e| &e.author_name).collect();
+    let unique_authors: HashSet<_> = export_data.iter().map(|e| &e.author_name).collect();
 
     println!("Total commits: {}", style(total_commits).cyan());
     println!("Total files changed: {}", style(total_files).cyan());

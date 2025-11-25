@@ -82,6 +82,10 @@ What it’s not: a general Git UI, blame replacement, or a web app.
 - Line diffs use a robust algorithm; binary files are ignored unless `--binary`
 - Merge commits are excluded by default to reduce noise
 
+## Testing
+
+- `cargo test` runs CLI smoke tests that spawn temporary git repos. On Windows, set `git config --global core.autocrlf false` (or `input`) to avoid CRLF churn blocking branch checkouts. The tests hard-reset their temp repos between branch switches to keep worktrees clean.
+
 ## Contributing
 
 Bug reports, ideas, and small PRs welcome. Keep changes focused. If you add a feature, add a flag and a short example to this README.

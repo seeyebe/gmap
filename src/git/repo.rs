@@ -1,10 +1,10 @@
 use crate::error::{GmapError, Result};
 use crate::model::{CommitInfo, CommitStats, DateRange, FileStats};
-use chrono::{DateTime, NaiveDate, Utc, TimeZone, Duration as ChronoDuration};
-use gix::{discover, ObjectId, Repository};
+use chrono::{DateTime, Duration as ChronoDuration, NaiveDate, TimeZone, Utc};
 use gix::object::tree::diff::ChangeDetached;
+use gix::{discover, ObjectId, Repository};
 use indicatif::{ProgressBar, ProgressStyle};
-use std::collections::{HashSet, VecDeque, HashMap};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
 #[derive(Clone)]
@@ -45,8 +45,7 @@ impl GitRepo {
         if let (Some(s), Some(u)) = (since_dt, until_dt) {
             if s > u {
                 return Err(GmapError::InvalidDate(format!(
-                    "Invalid range: since ({}) is after until ({})",
-                    s, u
+                    "Invalid range: since ({s}) is after until ({u})"
                 )));
             }
         }
@@ -112,7 +111,11 @@ impl GitRepo {
         let mut seen: HashSet<ObjectId> = HashSet::new();
         let mut stack: VecDeque<ObjectId> = VecDeque::from([head_commit.id]);
         let mut commit_cache: HashMap<ObjectId, CommitMeta> = HashMap::new();
-        let pb = if progress { ProgressBar::new_spinner() } else { ProgressBar::hidden() };
+        let pb = if progress {
+            ProgressBar::new_spinner()
+        } else {
+            ProgressBar::hidden()
+        };
         pb.set_style(
             ProgressStyle::default_spinner()
                 .template("{spinner:.green} {msg}")
@@ -130,15 +133,13 @@ impl GitRepo {
             } else {
                 let commit = self.find_commit_with_context(commit_id, None)?;
                 let secs = commit.time()?.seconds;
-                let timestamp = Utc.timestamp_opt(secs, 0)
+                let timestamp = Utc
+                    .timestamp_opt(secs, 0)
                     .single()
-                    .ok_or_else(|| {
-                        GmapError::InvalidDate(format!("Invalid timestamp: {secs}"))
-                    })?;
+                    .ok_or_else(|| GmapError::InvalidDate(format!("Invalid timestamp: {secs}")))?;
                 let author = commit.author()?;
                 let message = commit.message()?;
-                let parents: Vec<ObjectId> =
-                    commit.parent_ids().map(|id| id.into()).collect();
+                let parents: Vec<ObjectId> = commit.parent_ids().map(|id| id.into()).collect();
                 let entry = CommitMeta {
                     timestamp,
                     author_name: author.name.to_string(),
@@ -211,7 +212,8 @@ impl GitRepo {
             None
         };
         let changes: Vec<ChangeDetached> =
-            self.repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&commit_tree), None)?;
+            self.repo
+                .diff_tree_to_tree(parent_tree.as_ref(), Some(&commit_tree), None)?;
         let mut files = Vec::new();
         for change in changes {
             self.handle_change(change, binary, &mut files, &commit_info.id)?;
@@ -320,7 +322,11 @@ impl GitRepo {
             }
         })?;
         let is_binary = self.is_binary_object(&obj);
-        let lines = if is_binary { 0 } else { self.count_lines(&obj)? };
+        let lines = if is_binary {
+            0
+        } else {
+            self.count_lines(&obj)?
+        };
         Ok((is_binary, lines, obj))
     }
 
@@ -344,7 +350,11 @@ impl GitRepo {
             .unwrap_or(0))
     }
 
-    fn compute_line_diff(&self, old_object: &gix::Object, new_object: &gix::Object) -> Result<(u32, u32)> {
+    fn compute_line_diff(
+        &self,
+        old_object: &gix::Object,
+        new_object: &gix::Object,
+    ) -> Result<(u32, u32)> {
         let old_text = std::str::from_utf8(old_object.data.as_slice()).unwrap_or("");
         let new_text = std::str::from_utf8(new_object.data.as_slice()).unwrap_or("");
 
@@ -373,7 +383,8 @@ impl GitRepo {
             .map_err(|e| GmapError::Parse(format!("Invalid commit ID: {e}")))?;
         let commit = self.repo.find_commit(oid)?;
         let secs = commit.time()?.seconds;
-        let timestamp = Utc.timestamp_opt(secs, 0)
+        let timestamp = Utc
+            .timestamp_opt(secs, 0)
             .single()
             .ok_or_else(|| GmapError::InvalidDate(format!("Invalid timestamp: {secs}")))?;
         let author = commit.author()?;
@@ -439,8 +450,17 @@ impl GitRepo {
     }
 
     /// Compute commit stats for a single commit by ID, using first parent when present.
+
     pub fn compute_commit_stats_for(&self, commit_id: ObjectId, binary: bool) -> Result<CommitStats> {
         let commit = self.find_commit_with_context(commit_id, None)?;
+=======
+    pub fn compute_commit_stats_for(
+        &self,
+        commit_id: ObjectId,
+        binary: bool,
+    ) -> Result<CommitStats> {
+        let commit = self.repo.find_commit(commit_id)?;
+
         let parent_id: Option<ObjectId> = commit.parent_ids().next().map(|id| id.into());
 
         let commit_tree = commit.tree()?;
@@ -451,13 +471,17 @@ impl GitRepo {
         };
 
         let changes: Vec<ChangeDetached> =
-            self.repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&commit_tree), None)?;
+            self.repo
+                .diff_tree_to_tree(parent_tree.as_ref(), Some(&commit_tree), None)?;
         let mut files = Vec::new();
         for change in changes {
             self.handle_change(change, binary, &mut files, &commit.id.to_string())?;
         }
 
-        Ok(CommitStats { commit_id: commit.id.to_string(), files })
+        Ok(CommitStats {
+            commit_id: commit.id.to_string(),
+            files,
+        })
     }
 }
 

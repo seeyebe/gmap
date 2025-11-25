@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+- Refactor: split TUI event handling into `events.rs` and modularized views under `tui/views/` for maintainability.
+- Docs: added inline doc comments for exported TUI functions and helpers.
+- Tests: added unit tests for TUI search/filter helpers and git smoke tests now hard-reset temp repos and pin `core.autocrlf`/`core.safecrlf` to avoid CRLF churn.
+- DX: README documents Windows git settings needed for the CLI smoke tests.
+
 ## 0.4.0
 
 - Diff accuracy: use robust line-based diff via `similar` crate.

@@ -118,7 +118,10 @@ pub struct DateRange {
 
 impl DateRange {
     pub fn new() -> Self {
-        Self { since: None, until: None }
+        Self {
+            since: None,
+            until: None,
+        }
     }
 
     pub fn with_since(mut self, since: DateTime<Utc>) -> Self {

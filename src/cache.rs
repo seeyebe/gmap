@@ -1,6 +1,6 @@
 use crate::error::{GmapError, Result};
 use crate::model::{CommitInfo, CommitStats, DateRange, FileStats, SCHEMA_VERSION};
-use chrono::{Utc, TimeZone};
+use chrono::{TimeZone, Utc};
 use rusqlite::{params, Connection, ToSql};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -10,7 +10,10 @@ pub struct Cache {
 }
 
 impl Cache {
-    pub fn new<CP: AsRef<Path>, RP: AsRef<Path>>(cache_path: Option<CP>, repo_path: RP) -> Result<Self> {
+    pub fn new<CP: AsRef<Path>, RP: AsRef<Path>>(
+        cache_path: Option<CP>,
+        repo_path: RP,
+    ) -> Result<Self> {
         let cache_dir = match cache_path {
             Some(path) => path.as_ref().to_path_buf(),
             None => repo_path.as_ref().join(".gmap"),
@@ -61,8 +64,7 @@ impl Cache {
             self.conn.execute_batch(&set_stmt)?;
         } else if user_version != SCHEMA_VERSION as i64 {
             return Err(GmapError::Cache(format!(
-                "Schema version mismatch: expected {}, found {}",
-                SCHEMA_VERSION, user_version
+                "Schema version mismatch: expected {SCHEMA_VERSION}, found {user_version}"
             )));
         }
 
@@ -90,37 +92,36 @@ impl Cache {
 
         let mut stmt = self.conn.prepare(&query)?;
         let bind_refs: Vec<&dyn ToSql> = to_bind.iter().map(|b| b.as_ref()).collect();
-        let rows = stmt.query_map(
-            bind_refs.as_slice(),
-            |row| {
-                let commit_id: String = row.get(0)?;
-                let ts: i64 = row.get(1)?;
-                let path_opt: Option<String> = row.get(2)?;
-                let added_opt: Option<u32> = row.get(3)?;
-                let deleted_opt: Option<u32> = row.get(4)?;
-                let is_binary_opt: Option<i64> = row.get(5)?;
-                let mut files = Vec::new();
-                if let (Some(path), Some(added), Some(deleted), Some(is_binary_int)) =
-                    (path_opt, added_opt, deleted_opt, is_binary_opt)
-                {
-                    let is_binary = is_binary_int != 0;
-                    files.push(FileStats {
-                        path,
-                        added_lines: added,
-                        deleted_lines: deleted,
-                        is_binary,
-                    });
-                }
-                Ok((commit_id, ts, files))
-            },
-        )?;
+        let rows = stmt.query_map(bind_refs.as_slice(), |row| {
+            let commit_id: String = row.get(0)?;
+            let ts: i64 = row.get(1)?;
+            let path_opt: Option<String> = row.get(2)?;
+            let added_opt: Option<u32> = row.get(3)?;
+            let deleted_opt: Option<u32> = row.get(4)?;
+            let is_binary_opt: Option<i64> = row.get(5)?;
+            let mut files = Vec::new();
+            if let (Some(path), Some(added), Some(deleted), Some(is_binary_int)) =
+                (path_opt, added_opt, deleted_opt, is_binary_opt)
+            {
+                let is_binary = is_binary_int != 0;
+                files.push(FileStats {
+                    path,
+                    added_lines: added,
+                    deleted_lines: deleted,
+                    is_binary,
+                });
+            }
+            Ok((commit_id, ts, files))
+        })?;
 
         let mut commits_map: HashMap<String, (i64, Vec<FileStats>)> = HashMap::new();
         for row in rows {
             let (commit_id, ts, mut files) = row?;
             let entry = commits_map.entry(commit_id).or_insert((ts, Vec::new()));
             // keep the earliest timestamp seen for determinism (should be identical per commit)
-            if ts < entry.0 { entry.0 = ts; }
+            if ts < entry.0 {
+                entry.0 = ts;
+            }
             entry.1.append(&mut files);
         }
 
@@ -252,5 +253,4 @@ impl Cache {
             Err(e) => Err(e.into()),
         }
     }
-
 }

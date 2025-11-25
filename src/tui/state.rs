@@ -1,6 +1,6 @@
+use crate::heat::FileExtensionStats;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
-use crate::heat::FileExtensionStats;
 
 pub type TopFile = (String, usize);
 
@@ -15,9 +15,7 @@ pub struct WeekStats {
     pub top_files: Vec<TopFile>,
 }
 
-#[derive(Default)]
-
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct CommitDetail {
     pub hash: String,
     pub short_hash: String,
