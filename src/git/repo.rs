@@ -131,7 +131,7 @@ impl GitRepo {
             let meta = if let Some(cached) = commit_cache.get(&commit_id) {
                 cached.clone()
             } else {
-                let commit = self.repo.find_commit(commit_id)?;
+                let commit = self.find_commit_with_context(commit_id, None)?;
                 let secs = commit.time()?.seconds;
                 let timestamp = Utc
                     .timestamp_opt(secs, 0)
@@ -204,9 +204,10 @@ impl GitRepo {
         parent_id: Option<ObjectId>,
         binary: bool,
     ) -> Result<CommitStats> {
-        let commit_tree = self.repo.find_commit(commit_id)?.tree()?;
+        let commit = self.find_commit_with_context(commit_id, Some(&commit_info.id))?;
+        let commit_tree = commit.tree()?;
         let parent_tree = if let Some(pid) = parent_id {
-            Some(self.repo.find_commit(pid)?.tree()?)
+            Some(self.find_commit_with_context(pid, Some(&commit_info.id))?.tree()?)
         } else {
             None
         };
@@ -215,7 +216,7 @@ impl GitRepo {
                 .diff_tree_to_tree(parent_tree.as_ref(), Some(&commit_tree), None)?;
         let mut files = Vec::new();
         for change in changes {
-            self.handle_change(change, binary, &mut files)?;
+            self.handle_change(change, binary, &mut files, &commit_info.id)?;
         }
 
         Ok(CommitStats {
@@ -229,10 +230,11 @@ impl GitRepo {
         change: ChangeDetached,
         binary: bool,
         files: &mut Vec<FileStats>,
+        from_commit: &str,
     ) -> Result<()> {
         match change {
             ChangeDetached::Addition { id, location, .. } => {
-                let (is_binary, lines, _) = self.inspect_object(id)?;
+                let (is_binary, lines, _) = self.inspect_object(id, Some(from_commit))?;
                 if binary || !is_binary {
                     files.push(FileStats {
                         path: location.to_string(),
@@ -243,7 +245,7 @@ impl GitRepo {
                 }
             }
             ChangeDetached::Deletion { id, location, .. } => {
-                let (is_binary, lines, _) = self.inspect_object(id)?;
+                let (is_binary, lines, _) = self.inspect_object(id, Some(from_commit))?;
                 if binary || !is_binary {
                     files.push(FileStats {
                         path: location.to_string(),
@@ -259,8 +261,8 @@ impl GitRepo {
                 location,
                 ..
             } => {
-                let (old_is_binary, _, old_obj) = self.inspect_object(previous_id)?;
-                let (new_is_binary, _, new_obj) = self.inspect_object(id)?;
+                let (old_is_binary, _, old_obj) = self.inspect_object(previous_id, Some(from_commit))?;
+                let (new_is_binary, _, new_obj) = self.inspect_object(id, Some(from_commit))?;
                 let is_binary = old_is_binary || new_is_binary;
                 if binary || !is_binary {
                     let (added, deleted) = if is_binary {
@@ -284,8 +286,8 @@ impl GitRepo {
                 copy,
                 ..
             } => {
-                let (old_is_binary, _, old_obj) = self.inspect_object(source_id)?;
-                let (new_is_binary, _, new_obj) = self.inspect_object(id)?;
+                let (old_is_binary, _, old_obj) = self.inspect_object(source_id, Some(from_commit))?;
+                let (new_is_binary, _, new_obj) = self.inspect_object(id, Some(from_commit))?;
                 let is_binary = old_is_binary || new_is_binary;
                 if binary || !is_binary {
                     let (added, deleted) = if is_binary {
@@ -311,8 +313,14 @@ impl GitRepo {
         Ok(())
     }
 
-    fn inspect_object(&self, id: gix::ObjectId) -> Result<(bool, u32, gix::Object<'_>)> {
-        let obj = self.repo.find_object(id)?;
+    fn inspect_object(&self, id: gix::ObjectId, from_commit: Option<&str>) -> Result<(bool, u32, gix::Object<'_>)> {
+        let obj = self.repo.find_object(id).map_err(|e| {
+            if let Some(from) = from_commit {
+                GmapError::Other(format!("Object find error: {} (referenced from commit {})", e, from))
+            } else {
+                GmapError::from(e)
+            }
+        })?;
         let is_binary = self.is_binary_object(&obj);
         let lines = if is_binary {
             0
@@ -320,6 +328,16 @@ impl GitRepo {
             self.count_lines(&obj)?
         };
         Ok((is_binary, lines, obj))
+    }
+
+    fn find_commit_with_context<'a>(&'a self, id: ObjectId, from_commit: Option<&str>) -> Result<gix::object::Commit<'a>> {
+        self.repo.find_commit(id).map_err(|e| {
+            if let Some(from) = from_commit {
+                GmapError::Other(format!("Object find error: {} (referenced from commit {})", e, from))
+            } else {
+                GmapError::from(e)
+            }
+        })
     }
 
     fn is_binary_object(&self, object: &gix::Object) -> bool {
@@ -432,17 +450,22 @@ impl GitRepo {
     }
 
     /// Compute commit stats for a single commit by ID, using first parent when present.
+
+    pub fn compute_commit_stats_for(&self, commit_id: ObjectId, binary: bool) -> Result<CommitStats> {
+        let commit = self.find_commit_with_context(commit_id, None)?;
+=======
     pub fn compute_commit_stats_for(
         &self,
         commit_id: ObjectId,
         binary: bool,
     ) -> Result<CommitStats> {
         let commit = self.repo.find_commit(commit_id)?;
+
         let parent_id: Option<ObjectId> = commit.parent_ids().next().map(|id| id.into());
 
         let commit_tree = commit.tree()?;
         let parent_tree = if let Some(pid) = parent_id {
-            Some(self.repo.find_commit(pid)?.tree()?)
+            Some(self.find_commit_with_context(pid, Some(&commit.id.to_string()))?.tree()?)
         } else {
             None
         };
@@ -452,7 +475,7 @@ impl GitRepo {
                 .diff_tree_to_tree(parent_tree.as_ref(), Some(&commit_tree), None)?;
         let mut files = Vec::new();
         for change in changes {
-            self.handle_change(change, binary, &mut files)?;
+            self.handle_change(change, binary, &mut files, &commit.id.to_string())?;
         }
 
         Ok(CommitStats {
